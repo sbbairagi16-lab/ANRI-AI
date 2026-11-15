@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user workspace profile and ANRI AI preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "email": { "type": "string", "description": "User email address (private to owner)." },
+        "bio": { "type": "string", "description": "Personal workspace instructions or persona context." },
+        "preferredModelId": { "type": "string", "description": "Default Gemini model ID for chat." },
+        "bengaliVoiceEnabled": { "type": "boolean", "description": "Whether feminine Bengali voice is active by default." },
+        "voiceSpeed": { "type": "number", "description": "TTS speech rate multiplier (0.5 - 2.0)." },
+        "voicePitch": { "type": "number", "description": "TTS pitch multiplier (0.5 - 2.0)." },
+        "darkModeOverride": { "type": "string", "enum": ["system", "dark", "light"], "description": "Theme preference." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last update." }
+      },
+      "required": ["userId", "displayName", "preferredModelId", "bengaliVoiceEnabled", "darkModeOverride", "createdAt", "updatedAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "A user-owned AI conversation thread with dedicated route ID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Conversation title." },
+        "modelId": { "type": "string", "description": "Active Gemini model ID for this thread." },
+        "lastMessagePreview": { "type": "string", "description": "Snippet of the latest message." },
+        "messageCount": { "type": "integer", "description": "Number of persisted messages." },
+        "pinned": { "type": "boolean", "description": "Whether the conversation is pinned." },
+        "writingMode": { "type": "string", "enum": ["chat", "writing", "code", "research", "bengali"], "description": "Active assistant mode." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of last activity." }
+      },
+      "required": ["userId", "title", "modelId", "lastMessagePreview", "messageCount", "pinned", "writingMode", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "An immutable user or assistant message inside a conversation.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "conversationId": { "type": "string", "description": "Parent conversation document ID." },
+        "role": { "type": "string", "enum": ["user", "assistant"], "description": "Message author role." },
+        "content": { "type": "string", "description": "Markdown or plain text message body." },
+        "modelId": { "type": "string", "description": "Model ID used to generate this message." },
+        "modelName": { "type": "string", "description": "Human-readable model display name." },
+        "attachmentNames": { "type": "array", "description": "Private list of attached filenames or image labels." },
+        "citationTitles": { "type": "array", "description": "Titles of cited web sources." },
+        "citationUrls": { "type": "array", "description": "URLs of cited web sources." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation." }
+      },
+      "required": ["userId", "conversationId", "role", "content", "modelId", "modelName", "attachmentNames", "citationTitles", "citationUrls", "createdAt"]
+    },
+    "SavedPrompt": {
+      "title": "SavedPrompt",
+      "description": "A reusable prompt template saved to the user's account.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "title": { "type": "string", "description": "Short prompt title." },
+        "body": { "type": "string", "description": "Prompt text template." },
+        "category": { "type": "string", "description": "Prompt category label." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp of update." }
+      },
+      "required": ["userId", "title", "body", "category", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only profile and workspace settings."
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "User-scoped conversation threads."
+    },
+    "/users/{userId}/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages belonging to a user-scoped conversation."
+    },
+    "/users/{userId}/prompts/{promptId}": {
+      "schema": { "$ref": "#/entities/SavedPrompt" },
+      "description": "User-scoped saved prompts library."
+    }
+  }
+}

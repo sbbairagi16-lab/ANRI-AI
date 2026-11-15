@@ -1,0 +1,6 @@
+{
+  "name": "ANRI AI",
+  "description": "Polished AI assistant workspace with streaming chat, saved prompts, cited search, image generation, and feminine Bengali live voice.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

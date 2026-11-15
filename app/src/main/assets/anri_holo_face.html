@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ANRI AI — 3D Hologram Core</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #030710;
+      touch-action: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #gl-root {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+    #fallback-hud {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      color: #2ee6d6;
+      background: radial-gradient(circle at 50% 45%, #0c1f33 0%, #030710 70%);
+      text-align: center;
+      padding: 24px;
+    }
+    #fallback-canvas {
+      width: 280px;
+      height: 280px;
+      margin-bottom: 12px;
+    }
+    .status-note {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.82;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="gl-root"></div>
+  <div id="fallback-hud">
+    <canvas id="fallback-canvas" width="420" height="420"></canvas>
+    <div class="status-note" id="fallback-label">ANRI AI HOLOGRAM CORE</div>
+  </div>
+
+  <script type="module">
+    const STATE = {
+      mode: "jarvis",      // jarvis | chakra | sharingan | sage
+      phase: "IDLE",       // IDLE | LISTENING | THINKING | SPEAKING
+      wireframe: true,
+      audioEnergy: 0.0,
+      pointerX: 0,
+      pointerY: 0,
+    };
+
+    const PALETTES = {
+      jarvis: {
+        primary: 0x2ee6d6,
+        secondary: 0xffa726,
+        irisHex: "#2ee6d6",
+        irisEdge: "#063a4d",
+        hairHex: 0x16243a,
+        hairTip: 0x2ee6d6,
+        skin: 0x111d2e,
+        armor: 0x1a2840,
+        whisker: 0x2ee6d6,
+      },
+      chakra: {
+        primary: 0xffa726,
+        secondary: 0xff5722,
+        irisHex: "#ffb300",
+        irisEdge: "#6b2300",
+        hairHex: 0xf7a824,
+        hairTip: 0xfff0a0,
+        skin: 0x231712,
+        armor: 0x2d201a,
+        whisker: 0xff8f00,
+      },
+      sharingan: {
+        primary: 0xff2a55,
+        secondary: 0x2ee6d6,
+        irisHex: "#ff1744",
+        irisEdge: "#40000d",
+        hairHex: 0x111622,
+        hairTip: 0xff2a55,
+        skin: 0x141724,
+        armor: 0x1d2133,
+        whisker: 0xff2a55,
+      },
+      sage: {
+        primary: 0x38f2a6,
+        secondary: 0xffc83d,
+        irisHex: "#ffd54f",
+        irisEdge: "#145338",
+        hairHex: 0x182b27,
+        hairTip: 0x38f2a6,
+        skin: 0x122220,
+        armor: 0x1a302c,
+        whisker: 0x38f2a6,
+      },
+    };
+
+    async function loadThreeModules() {
+      try {
+        const [THREE, orbitMod] = await Promise.all([
+          import("three"),
+          import("three/addons/controls/OrbitControls.js"),
+        ]);
+        return { THREE, OrbitControls: orbitMod.OrbitControls };
+      } catch (e) {
+        // Fallback CDN mirror if jsDelivr is unreachable
+        const [THREE, orbitMod] = await Promise.all([
+          import("https://unpkg.com/three@0.170.0/build/three.module.min.js"),
+          import("https://unpkg.com/three@0.170.0/examples/jsm/controls/OrbitControls.js"),
+        ]);
+        return { THREE, OrbitControls: orbitMod.OrbitControls };
+      }
+    }
+
+    function startOfflineFallback() {
+      const hud = document.getElementById("fallback-hud");
+      const canvas = document.getElementById("fallback-canvas");
+      hud.style.display = "flex";
+      const ctx = canvas.getContext("2d");
+      let t = 0;
+      function draw() {
+        t += 0.04;
+        const w = canvas.width, h = canvas.height;
+        const cx = w / 2, cy = h / 2;
+        ctx.clearRect(0, 0, w, h);
+        const pal = PALETTES[STATE.mode] || PALETTES.jarvis;
+        const color = "#" + pal.primary.toString(16).padStart(6, "0");
+        const sec = "#" + pal.secondary.toString(16).padStart(6, "0");
+
+        // Outer J.A.R.V.I.S. rings
+        for (let i = 0; i < 3; i++) {
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(t * (i % 2 === 0 ? 0.5 : -0.7));
+          ctx.strokeStyle = i === 1 ? sec : color;
+          ctx.lineWidth = 3;
+          ctx.setLineDash([28, 12]);
+          ctx.beginPath();
+          ctx.arc(0, 0, 120 + i * 24, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        // Anime face contour
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(cx - 56, cy - 34);
+        ctx.quadraticCurveTo(cx, cy - 86, cx + 56, cy - 34);
+        ctx.lineTo(cx + 48, cy + 28);
+        ctx.lineTo(cx, cy + 76);
+        ctx.lineTo(cx - 48, cy + 28);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Anime eyes
+        [-24, 24].forEach((ox) => {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.ellipse(cx + ox, cy - 6, 12, 8, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Whiskers
+        ctx.strokeStyle = sec;
+        ctx.lineWidth = 2.5;
+        [-1, 1].forEach((side) => {
+          for (let k = -1; k <= 1; k++) {
+            ctx.beginPath();
+            ctx.moveTo(cx + side * 24, cy + 18 + k * 9);
+            ctx.lineTo(cx + side * 52, cy + 15 + k * 11);
+            ctx.stroke();
+          }
+        });
+        requestAnimationFrame(draw);
+      }
+      draw();
+      window.setAnriState = (next) => Object.assign(STATE, next || {});
+      window.resetAnriCamera = () => {};
+      window.AnriBridge?.onSceneReady?.("fallback2d");
+    }
+
+    loadThreeModules()
+      .then(({ THREE, OrbitControls }) => {
+        try {
+          initThreeScene(THREE, OrbitControls);
+        } catch (err) {
+          console.warn("WebGL init error, switching to 2D fallback", err);
+          startOfflineFallback();
+        }
+      })
+      .catch((err) => {
+        console.warn("Three.js CDN load failed, switching to 2D fallback", err);
+        startOfflineFallback();
+      });
+
+    function createIrisTexture(THREE, irisHex, edgeHex, isSharingan, isSage) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(0.5, 0.5);
+      const cx = 256, cy = 256;
+
+      const grad = ctx.createRadialGradient(cx, cy, 18, cx, cy, 240);
+      grad.addColorStop(0.0, "#05070c");
+      grad.addColorStop(0.24, "#05070c");
+      grad.addColorStop(0.28, irisHex);
+      grad.addColorStop(0.68, irisHex);
+      grad.addColorStop(0.92, edgeHex);
+      grad.addColorStop(1.0, "#02050a");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Anime iris radial fibers
+      ctx.save();
+      ctx.translate(cx, cy);
+      for (let i = 0; i < 48; i++) {
+        ctx.rotate((Math.PI * 2) / 48);
+        ctx.strokeStyle = "rgba(255,255,255,0.16)";
+        ctx.lineWidth = i % 4 === 0 ? 3 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(76, 0);
+        ctx.lineTo(208, 0);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Inner J.A.R.V.I.S. HUD / Dojutsu ring
+      ctx.strokeStyle = isSharingan ? "#120004" : "rgba(255,255,255,0.72)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 146, 0, Math.PI * 2);
+      ctx.stroke();
+
+      if (isSharingan) {
+        // 3 Tomoe commas
+        for (let i = 0; i < 3; i++) {
+          const ang = (i * Math.PI * 2) / 3 - Math.PI / 2;
+          const tx = cx + Math.cos(ang) * 146;
+          const ty = cy + Math.sin(ang) * 146;
+          ctx.fillStyle = "#080002";
+          ctx.beginPath();
+          ctx.arc(tx, ty, 20, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (isSage) {
+        // Horizontal Sage Mode Toad Bar pupil
+        ctx.fillStyle = "#080602";
+        ctx.fillRect(cx - 115, cy - 22, 230, 44);
+      } else {
+        // J.A.R.V.I.S. concentric reticle ticks
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 4;
+        for (let a = 0; a < 12; a++) {
+          const ang = (a * Math.PI * 2) / 12;
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(ang) * 124, cy + Math.sin(ang) * 124);
+          ctx.lineTo(cx + Math.cos(ang) * 168, cy + Math.sin(ang) * 168);
+          ctx.stroke();
+        }
+      }
+
+      // Signature dual anime specular catchlights
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.beginPath();
+      ctx.ellipse(cx - 58, cy - 68, 30, 22, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx + 52, cy + 56, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function createHudRingTexture(THREE, hexColor) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(0.5, 0.5);
+      const cx = 256, cy = 256;
+      ctx.clearRect(0, 0, 512, 512);
+
+      const cssColor = "#" + hexColor.toString(16).padStart(6, "0");
+      ctx.strokeStyle = cssColor;
+
+      // Segmented arc ticks
+      for (let i = 0; i < 60; i++) {
+        const ang = (i * Math.PI * 2) / 60;
+        const inner = i % 5 === 0 ? 182 : 196;
+        ctx.lineWidth = i % 5 === 0 ? 4 : 2;
+        ctx.globalAlpha = i % 5 === 0 ? 0.95 : 0.45;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang) * inner, cy + Math.sin(ang) * inner);
+        ctx.lineTo(cx + Math.cos(ang) * 228, cy + Math.sin(ang) * 228);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 240, 0.2, 2.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 240, 3.3, 5.4);
+      ctx.stroke();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function createHeadbandPlateTexture(THREE, hexColor) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 128;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(0.5, 0.5);
+
+      // Brushed metal gradient
+      const bg = ctx.createLinearGradient(0, 0, 512, 256);
+      bg.addColorStop(0, "#1c2638");
+      bg.addColorStop(0.5, "#3a4a66");
+      bg.addColorStop(1, "#182130");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, 512, 256);
+
+      // Subtle brushed lines
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
+      for (let y = 0; y < 256; y += 3) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(512, y);
+        ctx.stroke();
+      }
+
+      // Corner cyber bolts
+      const boltPositions = [[36, 36], [476, 36], [36, 220], [476, 220]];
+      boltPositions.forEach(([bx, by]) => {
+        ctx.fillStyle = "#6c82a3";
+        ctx.beginPath();
+        ctx.arc(bx, by, 10, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Glowing ANRI Konoha-Circuit Spiral Crest in center
+      const cssColor = "#" + hexColor.toString(16).padStart(6, "0");
+      ctx.save();
+      ctx.translate(256, 128);
+      ctx.strokeStyle = cssColor;
+      ctx.shadowColor = cssColor;
+      ctx.shadowBlur = 16;
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      for (let t = 0; t < Math.PI * 3.8; t += 0.12) {
+        const r = 6 + t * 4.5;
+        const x = Math.cos(t) * r;
+        const y = Math.sin(t) * r;
+        if (t === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Leaf blade tail + circuit node
+      ctx.beginPath();
+      ctx.moveTo(42, -16);
+      ctx.lineTo(82, -26);
+      ctx.lineTo(60, 8);
+      ctx.stroke();
+      ctx.restore();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function initThreeScene(THREE, OrbitControls) {
+      const root = document.getElementById("gl-root");
+      const renderer = new THREE.WebGLRenderer({
+        antialias: false,
+        alpha: false,
+        powerPreference: "default",
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.18;
+      renderer.shadowMap.enabled = false;
+      root.appendChild(renderer.domElement);
+
+      let sceneDisposed = false;
+      let rafId = 0;
+
+      renderer.domElement.addEventListener("webglcontextlost", (ev) => {
+        ev.preventDefault();
+        sceneDisposed = true;
+        if (rafId) cancelAnimationFrame(rafId);
+        startOfflineFallback();
+      });
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x030710);
+      scene.fog = new THREE.FogExp2(0x030710, 0.045);
+
+      const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 60);
+      const defaultCamPos = new THREE.Vector3(0, 0.28, 5.15);
+      const defaultTarget = new THREE.Vector3(0, 0.12, 0);
+      camera.position.copy(defaultCamPos);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.copy(defaultTarget);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.enablePan = false;
+      controls.minDistance = 3.1;
+      controls.maxDistance = 8.2;
+      controls.minPolarAngle = Math.PI * 0.24;
+      controls.maxPolarAngle = Math.PI * 0.72;
+      controls.minAzimuthAngle = -Math.PI * 0.42;
+      controls.maxAzimuthAngle = Math.PI * 0.42;
+
+      // Lightweight PBR studio lighting (safe for mobile & emulator SwiftShader WebGL)
+      const hemiLight = new THREE.HemisphereLight(0x4beeff, 0x090d1a, 1.15);
+      scene.add(hemiLight);
+
+      const keyLight = new THREE.DirectionalLight(0xffb86c, 2.0);
+      keyLight.position.set(3.2, 4.5, 4.0);
+      scene.add(keyLight);
+
+      const rimLight = new THREE.DirectionalLight(0x2ee6d6, 1.8);
+      rimLight.position.set(-3.5, 2.0, -3.0);
+      scene.add(rimLight);
+
+      const fillLight = new THREE.DirectionalLight(0x6fb8ff, 0.85);
+      fillLight.position.set(0, -1.5, 4.0);
+      scene.add(fillLight);
+
+      const corePointLight = new THREE.PointLight(0x2ee6d6, 2.4, 9);
+      corePointLight.position.set(0, -1.2, 1.8);
+      scene.add(corePointLight);
+
+      // Subtle holographic projector floor pedestal flush beneath ANRI bust
+      const floorGroup = new THREE.Group();
+      floorGroup.position.set(0, -1.82, 0);
+      scene.add(floorGroup);
+
+      const baseRingMat = new THREE.MeshStandardMaterial({
+        color: 0x0c1524,
+        metalness: 0.85,
+        roughness: 0.24,
+      });
+      const projectorBase = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.15, 1.42, 0.14, 48),
+        baseRingMat
+      );
+      projectorBase.receiveShadow = true;
+      floorGroup.add(projectorBase);
+
+      const emitterGlowMat = new THREE.MeshBasicMaterial({
+        color: 0x2ee6d6,
+        transparent: true,
+        opacity: 0.72,
+      });
+      const emitterRing = new THREE.Mesh(
+        new THREE.TorusGeometry(1.06, 0.025, 12, 64),
+        emitterGlowMat
+      );
+      emitterRing.rotation.x = Math.PI / 2;
+      emitterRing.position.y = 0.08;
+      floorGroup.add(emitterRing);
+
+      // Master ANRI Head Group (14+ composite articulated anime-JARVIS parts)
+      const anriRoot = new THREE.Group();
+      anriRoot.position.set(0, 0.12, 0);
+      scene.add(anriRoot);
+
+      const headGroup = new THREE.Group();
+      anriRoot.add(headGroup);
+
+      // 1. Sculpted Anime Cranium & V-Chin Face Shell (Lathe profile sculpted forward)
+      const skinMat = new THREE.MeshStandardMaterial({
+        color: 0x111d2e,
+        metalness: 0.34,
+        roughness: 0.28,
+      });
+      // Lathe points for anime head silhouette: pointed chin -> tapered jaw -> rounded cranium
+      const headProfile = [
+        new THREE.Vector2(0.0, -0.98),
+        new THREE.Vector2(0.24, -0.88),
+        new THREE.Vector2(0.54, -0.58),
+        new THREE.Vector2(0.75, -0.18),
+        new THREE.Vector2(0.84, 0.22),
+        new THREE.Vector2(0.79, 0.62),
+        new THREE.Vector2(0.56, 0.92),
+        new THREE.Vector2(0.22, 1.06),
+        new THREE.Vector2(0.0, 1.09),
+      ];
+      const headGeo = new THREE.LatheGeometry(headProfile, 40);
+      // Flatten depth slightly and sharpen chin front-to-back like anime character
+      const posAttr = headGeo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vy = posAttr.getY(i);
+        const vz = posAttr.getZ(i);
+        let nx = vx * 0.94;
+        let nz = vz * 0.98;
+        if (vy < -0.2) {
+          const chinT = Math.min(1, (-0.2 - vy) / 0.78);
+          nx *= 1.0 - chinT * 0.22;
+          if (vz > 0) nz *= 1.0 + chinT * 0.18;
+        }
+        posAttr.setXYZ(i, nx, vy, nz);
+      }
+      headGeo.computeVertexNormals();
+      const headMesh = new THREE.Mesh(headGeo, skinMat);
+      headMesh.castShadow = true;
+      headGroup.add(headMesh);
+
+      // 2. Holographic Fresnel + Scanline Overlay Shader Shell
+      const holoShellMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          uTime: { value: 0 },
+          uColor: { value: new THREE.Color(0x2ee6d6) },
+          uIntensity: { value: 0.72 },
+        },
+        vertexShader: `
+          varying vec3 vNormal;
+          varying vec3 vViewDir;
+          varying vec3 vWorldPos;
+          void main() {
+            vec4 worldPos = modelMatrix * vec4(position * 1.022, 1.0);
+            vWorldPos = worldPos.xyz;
+            vNormal = normalize(normalMatrix * normal);
+            vec4 mvPos = viewMatrix * worldPos;
+            vViewDir = normalize(-mvPos.xyz);
+            gl_Position = projectionMatrix * mvPos;
+          }
+        `,
+        fragmentShader: `
+          uniform float uTime;
+          uniform vec3 uColor;
+          uniform float uIntensity;
+          varying vec3 vNormal;
+          varying vec3 vViewDir;
+          varying vec3 vWorldPos;
+          void main() {
+            float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0), 2.4);
+            float scanline = 0.55 + 0.45 * sin(vWorldPos.y * 42.0 - uTime * 5.0);
+            float alpha = fresnel * scanline * uIntensity;
+            gl_FragColor = vec4(uColor, clamp(alpha, 0.0, 0.85));
+          }
+        `,
+      });
+      const holoShellMesh = new THREE.Mesh(headGeo, holoShellMat);
+      headGroup.add(holoShellMesh);
+
+      // Wireframe tech lattice overlay (togglable in HUD)
+      const wireframeMat = new THREE.MeshBasicMaterial({
+        color: 0x2ee6d6,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.11,
+      });
+      const wireframeShell = new THREE.Mesh(headGeo, wireframeMat);
+      wireframeShell.scale.setScalar(1.026);
+      headGroup.add(wireframeShell);
+
+      // 3. J.A.R.V.I.S. Cheek Armor Plates & Cyber Jawline Trim
+      const armorMat = new THREE.MeshStandardMaterial({
+        color: 0x1a2840,
+        metalness: 0.82,
+        roughness: 0.22,
+      });
+      const accentGlowMat = new THREE.MeshBasicMaterial({ color: 0x2ee6d6 });
+      const secondaryGlowMat = new THREE.MeshBasicMaterial({ color: 0xffa726 });
+
+      [-1, 1].forEach((side) => {
+        const cheekPlate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.44), armorMat);
+        cheekPlate.position.set(side * 0.67, -0.26, 0.25);
+        cheekPlate.rotation.set(0.22, side * -0.46, side * 0.28);
+        headGroup.add(cheekPlate);
+
+        const cheekTrim = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.34, 0.46), accentGlowMat);
+        cheekTrim.position.set(side * 0.72, -0.25, 0.27);
+        cheekTrim.rotation.set(0.22, side * -0.46, side * 0.28);
+        headGroup.add(cheekTrim);
+      });
+
+      // 4. Sculpted Anime Nose Ridge
+      const noseRidge = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.26, 4), armorMat);
+      noseRidge.position.set(0, -0.09, 0.85);
+      noseRidge.rotation.x = 0.24;
+      noseRidge.rotation.y = Math.PI * 0.25;
+      headGroup.add(noseRidge);
+
+      // 5. Reactive Holo-Vocalizer Mouth / Equalizer Bars
+      const mouthGroup = new THREE.Group();
+      mouthGroup.position.set(0, -0.44, 0.77);
+      headGroup.add(mouthGroup);
+
+      const mouthCore = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.045, 0.06),
+        new THREE.MeshBasicMaterial({ color: 0x2ee6d6, transparent: true, opacity: 0.92 })
+      );
+      mouthGroup.add(mouthCore);
+
+      const eqBars = [];
+      for (let b = -3; b <= 3; b++) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.05, 0.07), secondaryGlowMat);
+        bar.position.set(b * 0.048, 0, 0.01);
+        mouthGroup.add(bar);
+        eqBars.push(bar);
+      }
+
+      // 6. Naruto-Style Glowing Cheek Chakra Whiskers (3 curved tubes per cheek)
+      const whiskerMat = new THREE.MeshStandardMaterial({
+        color: 0xffa726,
+        emissive: 0xffa726,
+        emissiveIntensity: 1.5,
+        roughness: 0.2,
+      });
+      [-1, 1].forEach((side) => {
+        for (let w = 0; w < 3; w++) {
+          const yOff = -0.18 - w * 0.095;
+          const curve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(side * 0.34, yOff + 0.02, 0.76),
+            new THREE.Vector3(side * 0.56, yOff, 0.66),
+            new THREE.Vector3(side * 0.74, yOff - 0.03, 0.45),
+          ]);
+          const wMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.015, 8, false), whiskerMat);
+          headGroup.add(wMesh);
+        }
+      });
+
+      // 7. Expressive Dual Anime Dojutsu Eyes + Rotating Reticle + Animated Blink Eyelids
+      let currentIrisTex = createIrisTexture(THREE, "#2ee6d6", "#063a4d", false, false);
+      const irisMat = new THREE.MeshBasicMaterial({ map: currentIrisTex });
+      const scleraMat = new THREE.MeshBasicMaterial({ color: 0xdff8ff });
+      const eyelidMat = new THREE.MeshStandardMaterial({
+        color: 0x101c2d,
+        metalness: 0.6,
+        roughness: 0.25,
+      });
+      const eyeReticleMat = new THREE.MeshBasicMaterial({
+        color: 0x2ee6d6,
+        transparent: true,
+        opacity: 0.85,
+      });
+
+      const eyeGroups = [];
+      const eyeReticles = [];
+      const upperLids = [];
+      const lowerLids = [];
+
+      [-1, 1].forEach((side) => {
+        const eGroup = new THREE.Group();
+        eGroup.position.set(side * 0.32, 0.14, 0.76);
+        eGroup.rotation.y = side * 0.18;
+        headGroup.add(eGroup);
+
+        // Anime almond sclera
+        const sclera = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.21), scleraMat);
+        eGroup.add(sclera);
+
+        // Animated Iris disk
+        const irisGroup = new THREE.Group();
+        irisGroup.position.z = 0.012;
+        eGroup.add(irisGroup);
+        const iris = new THREE.Mesh(new THREE.CircleGeometry(0.095, 32), irisMat);
+        irisGroup.add(iris);
+
+        // Rotating J.A.R.V.I.S. / Sharingan outer eye reticle
+        const reticle = new THREE.Mesh(new THREE.RingGeometry(0.105, 0.122, 24, 1, 0, Math.PI * 1.4), eyeReticleMat);
+        reticle.position.z = 0.016;
+        irisGroup.add(reticle);
+
+        // Winged anime cyber eyelash/brow frame
+        const browFrame = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.036, 0.05), armorMat);
+        browFrame.position.set(side * 0.02, 0.135, 0.02);
+        browFrame.rotation.z = side * 0.11;
+        eGroup.add(browFrame);
+
+        const browGlow = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.016, 0.055), accentGlowMat);
+        browGlow.position.set(side * 0.02, 0.155, 0.022);
+        browGlow.rotation.z = side * 0.11;
+        eGroup.add(browGlow);
+
+        // Animated upper & lower eyelids
+        const upperLid = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.13), eyelidMat);
+        upperLid.position.set(0, 0.12, 0.028);
+        eGroup.add(upperLid);
+
+        const lowerLid = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.10), eyelidMat);
+        lowerLid.position.set(0, -0.11, 0.028);
+        eGroup.add(lowerLid);
+
+        eyeGroups.push(irisGroup);
+        eyeReticles.push(reticle);
+        upperLids.push(upperLid);
+        lowerLids.push(lowerLid);
+      });
+
+      // 8. Shinobi Forehead Headband (Hitai-ate) + ANRI Engraved Plate
+      const headbandClothMat = new THREE.MeshStandardMaterial({
+        color: 0x0d1522,
+        metalness: 0.35,
+        roughness: 0.65,
+      });
+      const headbandRing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.85, 0.85, 0.24, 40, 1, true),
+        headbandClothMat
+      );
+      headbandRing.position.set(0, 0.49, 0.0);
+      headbandRing.rotation.x = -0.10;
+      headGroup.add(headbandRing);
+
+      let plateTex = createHeadbandPlateTexture(THREE, 0x2ee6d6);
+      const plateMat = new THREE.MeshStandardMaterial({
+        map: plateTex,
+        metalness: 0.86,
+        roughness: 0.22,
+      });
+      const foreheadPlate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.76, 0.27, 0.10),
+        plateMat
+      );
+      foreheadPlate.position.set(0, 0.51, 0.83);
+      foreheadPlate.rotation.x = -0.14;
+      headGroup.add(foreheadPlate);
+
+      // 9. Iconic Naruto Spiky Anime Hair Crown & Side Locks (14 sculpted tapered spikes)
+      const hairGroup = new THREE.Group();
+      headGroup.add(hairGroup);
+
+      const hairMat = new THREE.MeshStandardMaterial({
+        color: 0x16243a,
+        emissive: 0x0a1c2e,
+        emissiveIntensity: 0.45,
+        metalness: 0.42,
+        roughness: 0.36,
+      });
+      const hairTipMat = new THREE.MeshBasicMaterial({
+        color: 0x2ee6d6,
+        transparent: true,
+        opacity: 0.78,
+      });
+
+      function addAnimeSpike(x, y, z, rx, ry, rz, radius, height) {
+        const spikeGroup = new THREE.Group();
+        spikeGroup.position.set(x, y, z);
+        spikeGroup.rotation.set(rx, ry, rz);
+
+        const body = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 6), hairMat);
+        body.position.y = height * 0.5;
+        body.castShadow = true;
+        spikeGroup.add(body);
+
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.45, height * 0.36, 6), hairTipMat);
+        tip.position.y = height * 0.84;
+        spikeGroup.add(tip);
+
+        hairGroup.add(spikeGroup);
+      }
+
+      // Dramatic spiky shonen silhouette: top crown spikes + angled side bangs
+      const spikeSpecs = [
+        [0.0, 0.96, 0.05, -0.18, 0, 0, 0.24, 0.92],
+        [-0.36, 0.90, 0.12, -0.1, 0, 0.46, 0.22, 0.86],
+        [0.36, 0.90, 0.12, -0.1, 0, -0.46, 0.22, 0.86],
+        [-0.62, 0.72, 0.05, -0.05, 0, 0.88, 0.20, 0.82],
+        [0.62, 0.72, 0.05, -0.05, 0, -0.88, 0.20, 0.82],
+        [-0.78, 0.44, -0.05, 0.05, 0, 1.25, 0.18, 0.74],
+        [0.78, 0.44, -0.05, 0.05, 0, -1.25, 0.18, 0.74],
+        // Front bangs sweeping over headband edges
+        [-0.48, 0.60, 0.62, 2.55, 0, 0.35, 0.12, 0.52],
+        [0.48, 0.60, 0.62, 2.55, 0, -0.35, 0.12, 0.52],
+        [0.0, 0.64, 0.68, 2.68, 0, 0.08, 0.10, 0.40],
+        // Rear crown spikes for 360 orbit appeal
+        [-0.28, 0.78, -0.58, -0.95, 0, 0.25, 0.24, 0.85],
+        [0.28, 0.78, -0.58, -0.95, 0, -0.25, 0.24, 0.85],
+        [-0.55, 0.45, -0.68, -1.35, 0, 0.55, 0.21, 0.78],
+        [0.55, 0.45, -0.68, -1.35, 0, -0.55, 0.21, 0.78],
+      ];
+      spikeSpecs.forEach((s) => addAnimeSpike(...s));
+
+      // 10. J.A.R.V.I.S. Cyber-Ear Comms Pods
+      const earRings = [];
+      [-1, 1].forEach((side) => {
+        const earPod = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.13, 20), armorMat);
+        earPod.rotation.z = Math.PI / 2;
+        earPod.position.set(side * 0.86, 0.08, -0.04);
+        headGroup.add(earPod);
+
+        const earRing = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 10, 24), accentGlowMat);
+        earRing.rotation.y = Math.PI / 2;
+        earRing.position.set(side * 0.93, 0.08, -0.04);
+        headGroup.add(earRing);
+        earRings.push(earRing);
+      });
+
+      // 11. Cyber Neck & Armored Collar
+      const neckCore = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.28, 0.34, 0.62, 24),
+        armorMat
+      );
+      neckCore.position.set(0, -1.16, -0.05);
+      anriRoot.add(neckCore);
+
+      const collarRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.46, 0.04, 12, 36),
+        accentGlowMat
+      );
+      collarRing.rotation.x = Math.PI * 0.52;
+      collarRing.position.set(0, -1.38, 0.02);
+      anriRoot.add(collarRing);
+
+      // 12. 3 Concentric Floating J.A.R.V.I.S. Holographic HUD Gyro-Rings
+      const hudGroup = new THREE.Group();
+      anriRoot.add(hudGroup);
+
+      let hudTex1 = createHudRingTexture(THREE, 0x2ee6d6);
+      let hudTex2 = createHudRingTexture(THREE, 0xffa726);
+      const hudDiscMat1 = new THREE.MeshBasicMaterial({
+        map: hudTex1,
+        transparent: true,
+        opacity: 0.58,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const hudDiscMat2 = new THREE.MeshBasicMaterial({
+        map: hudTex2,
+        transparent: true,
+        opacity: 0.48,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const hudRing1 = new THREE.Mesh(new THREE.RingGeometry(1.36, 1.72, 64), hudDiscMat1);
+      hudRing1.rotation.set(0.28, -0.15, 0);
+      hudGroup.add(hudRing1);
+
+      const hudRing2 = new THREE.Mesh(new THREE.RingGeometry(1.76, 2.08, 64), hudDiscMat2);
+      hudRing2.rotation.set(-0.42, 0.35, 0);
+      hudGroup.add(hudRing2);
+
+      const hudRing3 = new THREE.Mesh(new THREE.TorusGeometry(1.56, 0.014, 10, 96), accentGlowMat);
+      hudRing3.rotation.set(Math.PI * 0.48, 0.2, 0);
+      hudGroup.add(hudRing3);
+
+      // 13. Orbiting Chakra / Data Shards (InstancedMesh for crisp 60fps with zero GC)
+      const PARTICLE_COUNT = 72;
+      const shardGeo = new THREE.OctahedronGeometry(0.036, 0);
+      const shardMat = new THREE.MeshBasicMaterial({ color: 0x2ee6d6 });
+      const shardInstanced = new THREE.InstancedMesh(shardGeo, shardMat, PARTICLE_COUNT);
+      scene.add(shardInstanced);
+
+      const shardSeeds = [];
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        shardSeeds.push({
+          angle: (i / PARTICLE_COUNT) * Math.PI * 2,
+          radius: 1.45 + (i % 5) * 0.22,
+          height: ((i % 9) - 4) * 0.34,
+          speed: (0.35 + (i % 4) * 0.14) * (i % 2 === 0 ? 1 : -1),
+          tilt: (i % 7 - 3) * 0.18,
+        });
+      }
+
+      // Apply Visual Mode Theme dynamically
+      let activeAppliedMode = "";
+      function applyPalette(modeKey) {
+        if (activeAppliedMode === modeKey) return;
+        activeAppliedMode = modeKey;
+        const pal = PALETTES[modeKey] || PALETTES.jarvis;
+        skinMat.color.setHex(pal.skin);
+        armorMat.color.setHex(pal.armor);
+        accentGlowMat.color.setHex(pal.primary);
+        secondaryGlowMat.color.setHex(pal.secondary);
+        emitterGlowMat.color.setHex(pal.primary);
+        wireframeMat.color.setHex(pal.primary);
+        eyeReticleMat.color.setHex(pal.primary);
+        shardMat.color.setHex(pal.secondary);
+        holoShellMat.uniforms.uColor.value.setHex(pal.primary);
+        hairMat.color.setHex(pal.hairHex);
+        hairTipMat.color.setHex(pal.hairTip);
+        whiskerMat.color.setHex(pal.whisker);
+        whiskerMat.emissive.setHex(pal.whisker);
+        corePointLight.color.setHex(pal.primary);
+        rimLight.color.setHex(pal.primary);
+
+        const nextIris = createIrisTexture(
+          THREE,
+          pal.irisHex,
+          pal.irisEdge,
+          modeKey === "sharingan",
+          modeKey === "sage"
+        );
+        currentIrisTex.dispose();
+        currentIrisTex = nextIris;
+        irisMat.map = currentIrisTex;
+        irisMat.needsUpdate = true;
+
+        const nextHud1 = createHudRingTexture(THREE, pal.primary);
+        const nextHud2 = createHudRingTexture(THREE, pal.secondary);
+        hudTex1.dispose();
+        hudTex2.dispose();
+        hudTex1 = nextHud1;
+        hudTex2 = nextHud2;
+        hudDiscMat1.map = hudTex1;
+        hudDiscMat2.map = hudTex2;
+        hudDiscMat1.needsUpdate = true;
+        hudDiscMat2.needsUpdate = true;
+
+        const nextPlate = createHeadbandPlateTexture(THREE, pal.primary);
+        plateTex.dispose();
+        plateTex = nextPlate;
+        plateMat.map = plateTex;
+        plateMat.needsUpdate = true;
+      }
+
+      applyPalette(STATE.mode);
+
+      // Pointer tracking for subtle anime gaze/head follow
+      window.addEventListener("pointermove", (ev) => {
+        STATE.pointerX = (ev.clientX / window.innerWidth) * 2 - 1;
+        STATE.pointerY = -((ev.clientY / window.innerHeight) * 2 - 1);
+      });
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      window.setAnriState = (next) => {
+        if (!next) return;
+        Object.assign(STATE, next);
+        if (next.mode) applyPalette(next.mode);
+        wireframeShell.visible = Boolean(STATE.wireframe);
+      };
+
+      let resettingCamera = false;
+      window.resetAnriCamera = () => {
+        resettingCamera = true;
+      };
+
+      // Scratch objects for lossless 60fps render loop
+      const dummyObj = new THREE.Object3D();
+      let lastTime = performance.now();
+      let elapsed = 0;
+      let blinkTimer = 0;
+
+      function animate(now) {
+        if (sceneDisposed) return;
+        if (document.hidden) {
+          lastTime = now;
+          rafId = requestAnimationFrame(animate);
+          return;
+        }
+        const rawDt = Math.min((now - lastTime) * 0.001, 0.05);
+        lastTime = now;
+        elapsed += rawDt;
+        blinkTimer += rawDt;
+
+        const smoothFactor = 1 - Math.exp(-8 * rawDt);
+
+        if (resettingCamera) {
+          camera.position.lerp(defaultCamPos, smoothFactor);
+          controls.target.lerp(defaultTarget, smoothFactor);
+          if (camera.position.distanceTo(defaultCamPos) < 0.02) {
+            resettingCamera = false;
+          }
+        }
+        controls.update();
+
+        // Phase multipliers
+        const isListening = STATE.phase === "LISTENING";
+        const isThinking = STATE.phase === "THINKING";
+        const isSpeaking = STATE.phase === "SPEAKING";
+
+        const ringSpeed = isThinking ? 2.6 : isSpeaking ? 1.8 : isListening ? 1.3 : 0.45;
+        holoShellMat.uniforms.uTime.value = elapsed;
+        holoShellMat.uniforms.uIntensity.value = isThinking ? 1.0 : isSpeaking ? 0.92 : 0.66;
+
+        // Floating anime bust idle hover + attentive head tilt
+        anriRoot.position.y = 0.12 + Math.sin(elapsed * 1.9) * 0.045;
+        const targetHeadRotY = STATE.pointerX * 0.22 + (isListening ? 0.06 : Math.sin(elapsed * 0.8) * 0.05);
+        const targetHeadRotX = -STATE.pointerY * 0.12 + (isListening ? -0.05 : Math.sin(elapsed * 1.1) * 0.03);
+        headGroup.rotation.y += (targetHeadRotY - headGroup.rotation.y) * smoothFactor;
+        headGroup.rotation.x += (targetHeadRotX - headGroup.rotation.x) * smoothFactor;
+
+        // Natural blinking + expressive thinking squint
+        const cycle = blinkTimer % 3.6;
+        const blinkClose = cycle > 3.42 ? Math.sin(((cycle - 3.42) / 0.18) * Math.PI) : 0;
+        const focusSquint = isThinking ? 0.22 : 0;
+        const lidTravel = Math.min(1, blinkClose + focusSquint);
+        upperLids.forEach((lid) => {
+          lid.position.y = 0.125 - lidTravel * 0.085;
+        });
+        lowerLids.forEach((lid) => {
+          lid.position.y = -0.115 + lidTravel * 0.075;
+        });
+
+        // Rotating anime Dojutsu / J.A.R.V.I.S. eye reticles
+        eyeReticles.forEach((ret, idx) => {
+          ret.rotation.z += rawDt * (isThinking ? 4.2 : 1.1) * (idx === 0 ? 1 : -1);
+        });
+        eyeGroups.forEach((eg) => {
+          eg.position.x = STATE.pointerX * 0.025;
+          eg.position.y = STATE.pointerY * 0.015;
+        });
+
+        // Vocalizer mouth & EQ bars reaction when speaking
+        const speechPulse = isSpeaking
+          ? 0.35 + 0.65 * Math.abs(Math.sin(elapsed * 14.0) * Math.cos(elapsed * 6.5)) + (STATE.audioEnergy || 0) * 0.4
+          : isThinking
+            ? 0.2 + 0.15 * Math.sin(elapsed * 8.0)
+            : 0.05;
+        mouthCore.scale.y = 1.0 + speechPulse * 2.4;
+        eqBars.forEach((bar, i) => {
+          const wave = isSpeaking
+            ? 0.4 + Math.abs(Math.sin(elapsed * 16.0 + i * 0.9)) * 2.6
+            : isListening
+              ? 0.6 + Math.abs(Math.sin(elapsed * 5.0 + i * 0.7)) * 0.8
+              : 0.35;
+          bar.scale.y = wave;
+        });
+
+        // Whisker & core light glow reactivity
+        whiskerMat.emissiveIntensity = isSpeaking ? 2.1 + speechPulse : isThinking ? 1.9 : 1.25;
+        corePointLight.intensity = isSpeaking ? 3.4 + speechPulse * 1.5 : isThinking ? 3.2 : 2.1;
+
+        // Gyro HUD ring rotations
+        hudRing1.rotation.z += rawDt * 0.55 * ringSpeed;
+        hudRing2.rotation.z -= rawDt * 0.75 * ringSpeed;
+        hudRing3.rotation.y += rawDt * 0.65 * ringSpeed;
+        earRings.forEach((er, idx) => {
+          er.rotation.x += rawDt * 1.6 * (idx === 0 ? 1 : -1);
+        });
+
+        // Orbiting chakra / data shards via pre-allocated Matrix4 / Object3D
+        const orbitBoost = isThinking ? 2.4 : isSpeaking ? 1.7 : 1.0;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+          const s = shardSeeds[i];
+          const a = s.angle + elapsed * s.speed * orbitBoost;
+          const r = s.radius + Math.sin(elapsed * 2.0 + i) * 0.08;
+          dummyObj.position.set(
+            Math.cos(a) * r,
+            s.height + Math.sin(elapsed * 1.5 + i * 0.4) * 0.14 + 0.15,
+            Math.sin(a) * r
+          );
+          dummyObj.rotation.set(a, elapsed + s.tilt, a * 0.5);
+          const sc = isSpeaking ? 1.15 : 0.85;
+          dummyObj.scale.setScalar(sc);
+          dummyObj.updateMatrix();
+          shardInstanced.setMatrixAt(i, dummyObj.matrix);
+        }
+        shardInstanced.instanceMatrix.needsUpdate = true;
+
+        renderer.render(scene, camera);
+        rafId = requestAnimationFrame(animate);
+      }
+
+      window.disposeAnriScene = () => {
+        if (sceneDisposed) return;
+        sceneDisposed = true;
+        if (rafId) cancelAnimationFrame(rafId);
+        try {
+          controls.dispose();
+          scene.traverse((obj) => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+              mats.forEach((m) => {
+                if (m.map) m.map.dispose();
+                m.dispose();
+              });
+            }
+          });
+          currentIrisTex?.dispose?.();
+          hudTex1?.dispose?.();
+          hudTex2?.dispose?.();
+          plateTex?.dispose?.();
+          renderer.dispose();
+        } catch (_) {}
+      };
+
+      rafId = requestAnimationFrame(animate);
+      window.AnriBridge?.onSceneReady?.("webgl3d");
+    }
+  </script>
+</body>
+</html>
